@@ -1,185 +1,210 @@
-// Perfis de preenchimento
-const perfis = [
-    {
-        nome: "LOURDES",
-        primeiroNome: "LOURDES",
-        ultimoNome: "CAMPOS",
-        dataNascimento: "02/03/1997",
-        numeroPassaporte: "N3313365",
-        dataExpiracaoPassaporte: "28/02/2034",
-        telefone: "941336317",
-        email: "rluxate2@gmail.com",
-        codigoPais: "244",
-        genero: "Male",
-        nacionalidade: "Angola"
-    },
-    {
-        nome: "CAMILO",
-        primeiroNome: "CAMILO",
-        ultimoNome: "PITRA",
-        dataNascimento: "04/10/1975",
-        numeroPassaporte: "N2516344",
-        dataExpiracaoPassaporte: "18/06/2029",
-        telefone: "941336317",
-        email: "rluxate2@gmail.com",
-        codigoPais: "244",
-        genero: "Male",
-        nacionalidade: "Angola"
-    },
-    {
-        nome: "MENAYAME",
-        primeiroNome: "MENAYAME",
-        ultimoNome: "MBALA",
-        dataNascimento: "06/06/1979",
-        numeroPassaporte: "N3245116",
-        dataExpiracaoPassaporte: "29/04/2039",
-        telefone: "9941336317",
-        email: "rluxate2@gmail.com",
-        codigoPais: "244",
-        genero: "Male",
-        nacionalidade: "Angola"
-    },
-    {
-        nome: "VICTOR",
-        primeiroNome: "VICTO",
-        ultimoNome: "MBALA",
-        dataNascimento: "02/11/2014",
-        numeroPassaporte: "N3558908",
-        dataExpiracaoPassaporte: "06/01/2035",
-        telefone: "941336317",
-        email: "rluxate31@gmail.com",
-        codigoPais: "244",
-        genero: "Male",
-        nacionalidade: "Angola"
-    },
-    {
-        nome: "ANTINIO",
-        primeiroNome: "ANTONIO",
-        ultimoNome: "TORRES",
-        dataNascimento: "13/10/1966",
-        numeroPassaporte: "N2645168",
-        dataExpiracaoPassaporte: "21/03/2037",
-        telefone: "941336317",
-        email: "rluxate31@gmail.com",
-        codigoPais: "244",
-        genero: "Female",
-        nacionalidade: "Angola"
-    },
-    {
-        nome: "Brazil",
-        primeiroNome: "CINTIA",
-        ultimoNome: "CONDE",
-        dataNascimento: "30/07/1997",
-        numeroPassaporte: "N3132696",
-        dataExpiracaoPassaporte: "27/09/2033",
-        telefone: "941336317",
-        email: "rluxate31@gmail.com",
-        codigoPais: "244",
-        genero: "Female",
-        nacionalidade: "Angola"
-    }
-];
+// ==UserScript==
+// @name         Virtual Webcam Mix
+// @namespace    http://tampermonkey.net/
+// @version      1.7
+// @description  Exibe imagem ou vídeo como webcam virtual
+// @author       Seu Nome
+// @match        https://idnvui.vfsglobal.com/*
+// @grant        GM_addStyle
+// @grant        window.onurlchange
+// @require      https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.3/howler.min.js
+// ==/UserScript==
 
-// Função para preencher o formulário com base no perfil selecionado
-function preencherFormulario(perfil) {
-    const mapCampos = {
-        primeiroNome: "input[placeholder='Enter your first name']",
-        ultimoNome: "input[placeholder='Please enter last name.']",
-        dataNascimento: "input[placeholder='Please select the date']",
-        numeroPassaporte: "input[placeholder='Enter passport number']",
-        dataExpiracaoPassaporte: "#passportExpirtyDate",
-        codigoPais: "input[placeholder='44']",
-        telefone: "input[placeholder='012345648382']",
-        email: "input[placeholder='Enter Email Address']",
-        genero: "select[name='gender']",
-        nacionalidade: "select[name='nationality']"
+(function() {
+    'use strict';
+
+    let virtualStream = null;
+    let mediaSource = null;
+    let canvasContext = null;
+    let mediaElement = null;
+
+    // Interface do usuário
+    GM_addStyle(`
+        #virtualCamUI {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.95);
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 999999;
+            color: white;
+            font-family: Arial, sans-serif;
+            width: 300px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.7);
+        }
+
+        .vcam-btn {
+            background: #2196F3;
+            border: none;
+            color: white;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 100%;
+            transition: transform 0.2s;
+        }
+
+        .vcam-btn:hover {
+            transform: scale(1.05);
+        }
+
+        #mediaPreview {
+            max-width: 100%;
+            margin: 10px 0;
+            border-radius: 5px;
+            display: none;
+        }
+
+        #status {
+            font-size: 12px;
+            text-align: center;
+            margin-top: 10px;
+            color: #00ff00;
+        }
+    `);
+
+    const ui = document.createElement('div');
+    ui.id = 'virtualCamUI';
+    ui.innerHTML = `
+        <input type="file" id="mediaInput" accept="video/*,image/*" hidden>
+        <button class="vcam-btn" id="loadMedia">📁 Carregar Mídia</button>
+        <button class="vcam-btn" id="toggleCam" disabled>🎥 Iniciar Webcam Virtual</button>
+        <div id="previewContainer"></div>
+        <div id="status">Status: Pronto</div>
+        <canvas id="hiddenCanvas" hidden></canvas>
+    `;
+
+    document.body.appendChild(ui);
+
+    // Elementos DOM
+    const previewContainer = document.getElementById('previewContainer');
+    const loadButton = document.getElementById('loadMedia');
+    const toggleButton = document.getElementById('toggleCam');
+    const hiddenCanvas = document.getElementById('hiddenCanvas');
+    
+    // Configurar canvas
+    hiddenCanvas.width = 640;
+    hiddenCanvas.height = 480;
+    canvasContext = hiddenCanvas.getContext('2d');
+
+    // Interceptar webcam
+    const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+
+    navigator.mediaDevices.getUserMedia = async (constraints) => {
+        if (constraints.video && virtualStream) {
+            return virtualStream.clone();
+        }
+        return originalGetUserMedia(constraints);
     };
 
-    for (const campo in mapCampos) {
-        const input = document.querySelector(mapCampos[campo]);
-        if (input && perfil[campo]) {
-            if (input.tagName === "SELECT") {
-                // Preenchendo campos SELECT (gênero e nacionalidade)
-                const option = Array.from(input.options).find(opt => opt.text.trim() === perfil[campo]);
-                if (option) {
-                    option.selected = true;
-                    input.dispatchEvent(new Event('change', { bubbles: true }));
-                }
-            } else {
-                // Preenchendo campos INPUT
-                input.value = perfil[campo];
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-            }
+    // Eventos
+    loadButton.addEventListener('click', () => document.getElementById('mediaInput').click());
+
+    document.getElementById('mediaInput').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (mediaSource) URL.revokeObjectURL(mediaSource);
+
+        mediaSource = URL.createObjectURL(file);
+        toggleButton.disabled = false;
+
+        // Remover mídia anterior
+        if (mediaElement) previewContainer.removeChild(mediaElement);
+
+        if (file.type.startsWith('video/')) {
+            // Criar vídeo
+            mediaElement = document.createElement('video');
+            mediaElement.src = mediaSource;
+            mediaElement.controls = true;
+            mediaElement.loop = true;
+            mediaElement.muted = true;
+            mediaElement.playsInline = true;
+            mediaElement.style.maxWidth = '100%';
+        } else {
+            // Criar imagem
+            mediaElement = document.createElement('img');
+            mediaElement.src = mediaSource;
+            mediaElement.style.maxWidth = '100%';
+        }
+
+        previewContainer.appendChild(mediaElement);
+        updateStatus('Mídia carregada com sucesso!');
+    });
+
+    toggleButton.addEventListener('click', () => {
+        if (virtualStream) {
+            stopVirtualCam();
+            toggleButton.textContent = '🎥 Iniciar Webcam Virtual';
+        } else {
+            startVirtualCam();
+            toggleButton.textContent = '⏹ Parar Webcam Virtual';
+        }
+    });
+
+    // Funções principais
+    function startVirtualCam() {
+        if (!mediaSource || !mediaElement) {
+            updateStatus('Carregue uma mídia primeiro!', true);
+            return;
+        }
+
+        if (mediaElement.tagName === 'IMG') {
+            handleImageSource();
+        } else if (mediaElement.tagName === 'VIDEO') {
+            handleVideoSource();
         }
     }
 
-    alert(`Campos preenchidos com sucesso para o perfil: ${perfil.nome}!`);
-}
+    function handleImageSource() {
+        const img = new Image();
+        img.onload = () => {
+            hiddenCanvas.width = img.naturalWidth;
+            hiddenCanvas.height = img.naturalHeight;
 
-// Adicionar barra lateral de perfis
-function addProfileSidebar() {
-    const sidebar = document.createElement('div');
-    sidebar.id = "profileSidebar";
-    sidebar.style.cssText = `
-        position: fixed;
-        top: 10%;
-        right: 0;
-        z-index: 9999;
-        background: rgba(255, 255, 255, 0.95);
-        width: 200px;
-        padding: 10px;
-        border-radius: 5px 0 0 5px;
-        box-shadow: -3px 0 5px rgba(0, 0, 0, 0.2);
-        display: none;
-    `;
-    sidebar.innerHTML = `<h3 style="text-align: center;">Escolher Perfil</h3>`;
-    document.body.appendChild(sidebar);
+            const drawFrame = () => {
+                canvasContext.drawImage(img, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+                requestAnimationFrame(drawFrame);
+            };
 
-    perfis.forEach((perfil) => {
-        const button = document.createElement('button');
-        button.textContent = perfil.nome;
-        button.style.cssText = `
-            display: block;
-            margin: 5px auto;
-            padding: 8px;
-            width: 90%;
-            background: #0056b3;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-        `;
-        button.addEventListener('click', () => preencherFormulario(perfil));
-        sidebar.appendChild(button);
+            drawFrame();
+
+            const stream = hiddenCanvas.captureStream(30);
+            virtualStream = new MediaStream([stream.getVideoTracks()[0]]);
+            updateStatus('Imagem sendo transmitida como vídeo!');
+        };
+        img.src = mediaSource;
+    }
+
+    function handleVideoSource() {
+        mediaElement.play().then(() => {
+            const stream = mediaElement.captureStream(30);
+            virtualStream = new MediaStream([stream.getVideoTracks()[0]]);
+            updateStatus('Vídeo sendo transmitido!');
+        }).catch(error => {
+            updateStatus(`Erro: ${error.message}`, true);
+        });
+    }
+
+    function stopVirtualCam() {
+        if (virtualStream) {
+            virtualStream.getTracks().forEach(track => track.stop());
+            virtualStream = null;
+        }
+        updateStatus('Webcam real restaurada');
+    }
+
+    function updateStatus(message, isError = false) {
+        const status = document.getElementById('status');
+        status.textContent = `Status: ${message}`;
+        status.style.color = isError ? '#ff0000' : '#00ff00';
+    }
+
+    // Limpeza
+    window.addEventListener('beforeunload', () => {
+        if (virtualStream) virtualStream.getTracks().forEach(track => track.stop());
+        if (mediaSource) URL.revokeObjectURL(mediaSource);
     });
-}
-
-// Adicionar botão flutuante para abrir/fechar a barra lateral
-function addFloatingButton() {
-    const toggleButton = document.createElement('button');
-    toggleButton.textContent = "Perfis";
-    toggleButton.style.cssText = `
-        position: fixed;
-        top: 10px;
-        right: 10px;
-        z-index: 10000;
-        background: #0056b3;
-        color: white;
-        border: none;
-        border-radius: 5px;
-        padding: 10px 15px;
-        cursor: pointer;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-    `;
-    toggleButton.addEventListener('click', () => {
-        const sidebar = document.getElementById("profileSidebar");
-        sidebar.style.display = sidebar.style.display === "none" ? "block" : "none";
-    });
-    document.body.appendChild(toggleButton);
-}
-
-// Executar ao carregar a página
-window.addEventListener('load', () => {
-    addProfileSidebar();
-    addFloatingButton();
-});
+})();
